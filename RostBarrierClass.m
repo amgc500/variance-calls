@@ -49,8 +49,6 @@ classdef RostBarrierClass < handle & BarrierClass
         Kushner % 1 = use Kushner approimations for derivatives (see Barles & Jacobsen). This will also truncate any given data.
         u_plot_points % Number of points at which u is saved for plotting
         u_save % value of u at saved points
-        simulate_multiple % Number of simulation time-steps per time-step of computed barrier
-        sim_time_vec % Time points for simulation. Linear interpolation of time_vec
     end
     
     properties (SetAccess = protected)
@@ -66,7 +64,7 @@ classdef RostBarrierClass < handle & BarrierClass
     end
     
     methods
-        function obj = RostBarrierClass(PM,space_size,time_size,time_changes,Kushner,upp,sm)
+        function obj = RostBarrierClass(PM,space_size,time_size,time_changes,Kushner,upp)
             if nargin ==0
                 obj.PM = HestonModel();
                 obj.space_steps = 1000;
@@ -74,7 +72,6 @@ classdef RostBarrierClass < handle & BarrierClass
                 obj.t_diff = 3;
                 obj.Kushner=1;
                 obj.u_plot_points =8;
-                obj.simulate_multiple = 1;
             elseif nargin ==1
                 obj.PM = PM;
                 obj.space_steps = 1000;
@@ -82,7 +79,6 @@ classdef RostBarrierClass < handle & BarrierClass
                 obj.t_diff = 3;
                 obj.Kushner=1;
                 obj.u_plot_points =8;
-                obj.simulate_multiple = 1;
             elseif nargin ==2
                 obj.PM = PM;
                 obj.space_steps = space_size;
@@ -90,7 +86,6 @@ classdef RostBarrierClass < handle & BarrierClass
                 obj.t_diff = 3;
                 obj.Kushner=1;
                 obj.u_plot_points =8;
-                obj.simulate_multiple = 1;
             elseif nargin ==3
                 obj.PM = PM;
                 obj.space_steps = space_size;
@@ -98,7 +93,6 @@ classdef RostBarrierClass < handle & BarrierClass
                 obj.t_diff = 3;
                 obj.Kushner=1;
                 obj.u_plot_points =8;
-                obj.simulate_multiple = 1;
             elseif nargin ==4
                 obj.PM = PM;
                 obj.space_steps = space_size;
@@ -106,7 +100,6 @@ classdef RostBarrierClass < handle & BarrierClass
                 obj.t_diff = time_changes;
                 obj.Kushner=1;
                 obj.u_plot_points =8;
-                obj.simulate_multiple = 1;
             elseif nargin ==5
                 obj.PM = PM;
                 obj.space_steps = space_size;
@@ -114,7 +107,6 @@ classdef RostBarrierClass < handle & BarrierClass
                 obj.t_diff = time_changes;
                 obj.Kushner=Kushner;
                 obj.u_plot_points =8;
-                obj.simulate_multiple = 1;
             else
                 obj.PM = PM;
                 obj.space_steps = space_size;
@@ -122,7 +114,6 @@ classdef RostBarrierClass < handle & BarrierClass
                 obj.t_diff = time_changes;
                 obj.Kushner = Kushner;
                 obj.u_plot_points = upp;
-                obj.simulate_multiple = max(floor(sm),1);
             end
             obj.n_samp = 0;
             obj.EmpPotential = [];
@@ -138,7 +129,7 @@ classdef RostBarrierClass < handle & BarrierClass
             obj.atmVol = blsimpv(S,S*exp(obj.PM.r*obj.PM.T),obj.PM.r,obj.PM.T,atmCall);
 
             S_factor_up = (1.5*exp((6*obj.atmVol-(obj.atmVol^2)/2)*obj.PM.T));
-            S_factor_down = (3*exp((6*obj.atmVol+(obj.atmVol^2))*obj.PM.T));
+            S_factor_down = (1.5*exp((6*obj.atmVol+(obj.atmVol^2))*obj.PM.T));
             S_min = S/S_factor_down;
             S_max = S*S_factor_up;
 
@@ -170,14 +161,7 @@ classdef RostBarrierClass < handle & BarrierClass
             for i = 1:obj.t_diff
                 obj.time_vec(m_vec(i):m_vec(i+1)) = linspace(t_crit(i),t_crit(i+1),m_vec(i+1)-m_vec(i)+1);
             end
-  
-            obj.sim_time_vec = zeros((m-1)*obj.simulate_multiple+1,1);
-            obj.sim_time_vec((1:obj.simulate_multiple:(m-1)*obj.simulate_multiple+1)) = obj.time_vec;
             
-            for i = 1:(obj.simulate_multiple-1)
-                obj.sim_time_vec((1+i:obj.simulate_multiple:(m-1)*obj.simulate_multiple+1)) ...
-                    = obj.time_vec(2:m)*i/(obj.simulate_multiple)+obj.time_vec(1:(m-1))*(obj.simulate_multiple-i)/(obj.simulate_multiple);
-            end
                         
             display('Computing Prices...')
             obj.Cl = obj.PM.Call(obj.z*exp(-obj.PM.r*obj.PM.T));
@@ -346,12 +330,12 @@ classdef RostBarrierClass < handle & BarrierClass
                 XTau = obj.XTau_samp(1:n);
                 TauD = obj.XTau_samp(1:n);
             else
-                TauD = (1:n)*0+obj.sim_time_vec(length(obj.sim_time_vec));
+                TauD = (1:n)*0+obj.time_vec(length(obj.time_vec));
                 TauD(1:obj.n_samp) = obj.TauD_samp;
                 XTau = (1:n)*0;
                 XTau(1:obj.n_samp) = obj.XTau_samp;
                 
-                m = length(obj.sim_time_vec);
+                m = length(obj.time_vec);
                 Y = (1:m)*0;
                 
                 dy = obj.y(2)-obj.y(1);
@@ -363,22 +347,8 @@ classdef RostBarrierClass < handle & BarrierClass
                 %t_step = obj.time_vec + [0 ones(1,m1)*dt/2 ones(1,length(obj.time_vec)-1-m1)*0]';
 
                 
-                t_step = obj.sim_time_vec;
+                t_step = obj.time_vec;
 
-                use_smoothed_barrier = 1;
-                
-                if use_smoothed_barrier == 1
-                    width_fact1 = 3; % Time-steps to go forward - multples of simulate_multiple
-                    width_fact2 = 10; % multiple of 95% confidence interval to consider, based on factor above
-                    V0 = 0.04; % This should be an estimate of the initial variance of the model
-                    id = (find(abs(obj.x) < width_fact2*1.96*sqrt(obj.time_vec(width_fact1*obj.simulate_multiple))*sqrt(V0),1,'first'):find(abs(obj.x) < width_fact2*1.96*sqrt(obj.time_vec(width_fact1*obj.simulate_multiple))*sqrt(V0),1,'last'));
-                    x0 = obj.x(id);
-                    y0 = sqrt(obj.r(id)).*sign(x0)';
-                    a0 = dot(x0,y0)/dot(x0,x0);
-                    id_min = id(1);
-                    id_max = id(length(id));
-                end
-                    
                 for k = (obj.n_samp+1):n
                     
                     Y(1) = 0; %Sample log process
@@ -388,16 +358,7 @@ classdef RostBarrierClass < handle & BarrierClass
                         Y(i) = Y(i-1)+sqrt(dt)*randn(1)-0.5*dt;
                         int_part = min(max(floor(atan(Y(i))/dy-obj.y(1)/dy)+1,1),obj.space_steps-1);
                         frac = (atan(Y(i))-obj.y(int_part))/dy;
-                        
-%                        if ((use_smoothed_barrier == 1)&&(int_part < id_max)&&(int_part >= id_min)&&(i>=obj.simulate_multiple))
-                        if ((use_smoothed_barrier == 1)&&(int_part < id_max)&&(int_part >= id_min))
-                            r_crit = (a0^2)*((Y(i))^2);
-%                         elseif (i<obj.simulate_multiple)
-%                             r_crit = 0;
-                        else
-                            r_crit = (1-frac)*obj.r(int_part) + frac*obj.r(int_part+1);
-                        end
-                        
+                        r_crit = (1-frac)*obj.r(int_part) + frac*obj.r(int_part+1);
                         if r_crit > t_step(i)
                             TauD(k) = t_step(i);
                             XTau(k) = obj.PM.s*exp(Y(i));
